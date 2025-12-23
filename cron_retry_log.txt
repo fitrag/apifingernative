@@ -1,0 +1,22 @@
+[2025-12-23 11:42:20] === Memproses 3 pesan dalam antrian ===
+[2025-12-23 11:42:20] RETRY #1: 6285369049494 - tidak_hadir
+[2025-12-23 11:42:21] WA Response [400]: {"error":"Device not connected"}
+[2025-12-23 11:42:21] FAILED: 6285369049494 - will retry later
+[2025-12-23 11:42:22] RETRY #1: 6281387734016 - tidak_hadir
+[2025-12-23 11:42:22] WA Response [400]: {"error":"Device not connected"}
+[2025-12-23 11:42:22] FAILED: 6281387734016 - will retry later
+[2025-12-23 11:42:23] RETRY #1: 6281387734016 - tidak_hadir
+[2025-12-23 11:42:24] WA Response [400]: {"error":"Device not connected"}
+[2025-12-23 11:42:24] FAILED: 6281387734016 - will retry later
+[2025-12-23 11:42:25] === Selesai: Success=0, Failed=3, Removed=0 ===
+[2025-12-23 11:45:50] === Memproses 3 pesan dalam antrian ===
+[2025-12-23 11:45:50] RETRY #2: 6285369049494 - tidak_hadir
+[2025-12-23 11:45:52] WA Response [200]: {"success":true,"message_id":240,"wa_message_id":"3EB0CA985D99BB0EF1F94C","quota_remaining":4902}
+[2025-12-23 11:45:52] SUCCESS: Sent to 6285369049494
+[2025-12-23 11:45:53] RETRY #2: 6281387734016 - tidak_hadir
+[2025-12-23 11:45:54] WA Response [200]: {"success":true,"message_id":241,"wa_message_id":"3EB08B9A31E4FB9F47E7B4","quota_remaining":4901}
+[2025-12-23 11:45:54] SUCCESS: Sent to 6281387734016
+[2025-12-23 11:45:55] RETRY #2: 6281387734016 - tidak_hadir
+[2025-12-23 11:45:55] WA Response [200]: {"success":true,"message_id":242,"wa_message_id":"3EB06F0C61ACC697D34024","quota_remaining":4900}
+[2025-12-23 11:45:55] SUCCESS: Sent to 6281387734016
+[2025-12-23 11:45:56] === Selesai: Success=3, Failed=0, Removed=0 ===

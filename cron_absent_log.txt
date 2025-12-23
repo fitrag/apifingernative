@@ -1,0 +1,24 @@
+[2025-12-23 11:42:17] User Miyanto TIDAK HADIR - belum absen sama sekali
+[2025-12-23 11:42:17] WA Response [400]: {"error":"Device not connected"}
+[2025-12-23 11:42:17] FAILED: Added to queue - 6281387734016 for Miyanto
+[2025-12-23 11:42:17] User Agus TIDAK HADIR - belum absen sama sekali
+[2025-12-23 11:42:18] WA Response [400]: {"error":"Device not connected"}
+[2025-12-23 11:42:18] FAILED: Added to queue - 6281387734016 for Agus
+[2025-12-23 11:42:18] User Wahyudi TIDAK HADIR - belum absen sama sekali
+[2025-12-23 11:42:18] WA Response [400]: {"error":"Device not connected"}
+[2025-12-23 11:42:18] FAILED: Added to queue - 6285369049494 for Wahyudi
+[2025-12-23 13:59:15] User Jane Smith TIDAK HADIR - belum absen sama sekali
+[2025-12-23 13:59:17] WA Response [200]: {"success":true,"message_id":247,"wa_message_id":"3EB0809B3B1591A968318C","quota_remaining":4895}
+[2025-12-23 13:59:17] SUCCESS: Sent absent notification to 628987654321 for Jane Smith
+[2025-12-23 13:59:17] User John Doe TIDAK HADIR - belum absen sama sekali
+[2025-12-23 13:59:20] WA Response [200]: {"success":true,"message_id":248,"wa_message_id":"3EB0FF332C9F696CECF1BB","quota_remaining":4894}
+[2025-12-23 13:59:20] SUCCESS: Sent absent notification to 628123456789 for John Doe
+[2025-12-23 13:59:20] User Ahmad Rizki TIDAK HADIR - belum absen sama sekali
+[2025-12-23 13:59:26] WA Response [200]: {"success":true,"message_id":249,"wa_message_id":"3EB020B099032FD91C06BB","quota_remaining":4893}
+[2025-12-23 13:59:26] SUCCESS: Sent absent notification to 628555666777 for Ahmad Rizki
+[2025-12-23 14:16:12] User John Doe TIDAK HADIR - belum absen sama sekali
+[2025-12-23 14:16:13] WA Response [200]: {"success":true,"message_id":250,"wa_message_id":"3EB02126BB8BA8BB72B3D3","quota_remaining":4892}
+[2025-12-23 14:16:13] SUCCESS: Sent absent notification to 6285609136570 for John Doe
+[2025-12-23 14:22:50] User John Doe TIDAK HADIR - belum absen sama sekali
+[2025-12-23 14:22:51] WA Response [200]: {"success":true,"message_id":251,"wa_message_id":"3EB00C59588FBEFE8E0BC4","quota_remaining":4891}
+[2025-12-23 14:22:51] SUCCESS: Sent absent notification to 6285609136570 for John Doe

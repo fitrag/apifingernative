@@ -1,0 +1,30 @@
+[2025-12-23 05:07:05] WA Response [200]: {"success":true,"message_id":236,"wa_message_id":"3EB0CDC934EB1BBC88CF39","quota_remaining":4906}
+[2025-12-23 05:07:05] SUCCESS: Sent notification to 6285369049494 for Wahyudi (Check In)
+[2025-12-23 05:07:05] User Miyanto TERLAMBAT - masuk jam 07:35:14
+[2025-12-23 05:07:06] WA Response [200]: {"success":true,"message_id":237,"wa_message_id":"3EB0403E7F510CA863065C","quota_remaining":4905}
+[2025-12-23 05:07:06] SUCCESS: Sent notification to 6281387734016 for Miyanto (Check In)
+[2025-12-23 05:07:06] WA Response [200]: {"success":true,"message_id":238,"wa_message_id":"3EB057768DEFC930DB03D8","quota_remaining":4904}
+[2025-12-23 05:07:06] SUCCESS: Sent notification to 6285369049494 for Wahyudi (Check Out)
+[2025-12-23 05:07:06] Updated last ID from 0 to 111
+[2025-12-23 13:32:22] User Miyanto TIDAK HADIR - masuk jam 09:31:37
+[2025-12-23 13:32:24] WA Response [200]: {"success":true,"message_id":243,"wa_message_id":"3EB0523EFD14D7A38FC253","quota_remaining":4899}
+[2025-12-23 13:32:24] SUCCESS: Sent notification to 6281387734016 for Miyanto (Check In)
+[2025-12-23 13:32:24] Updated last ID from 111 to 112
+[2025-12-23 13:33:16] Skip ID 113: User Miyanto already notified for Check In today
+[2025-12-23 13:33:16] User Agus TERLAMBAT - masuk jam 07:00:58
+[2025-12-23 13:33:17] WA Response [200]: {"success":true,"message_id":244,"wa_message_id":"3EB0B9DC68C3B3C097AF24","quota_remaining":4898}
+[2025-12-23 13:33:17] SUCCESS: Sent notification to 6281387734016 for Agus (Check In)
+[2025-12-23 13:33:17] Updated last ID from 112 to 114
+[2025-12-23 13:34:20] WA Response [200]: {"success":true,"message_id":245,"wa_message_id":"3EB0FB77FFB9A8FB14D452","quota_remaining":4897}
+[2025-12-23 13:34:20] SUCCESS: Sent notification to 6281387734016 for Miyanto (Check Out)
+[2025-12-23 13:34:21] WA Response [200]: {"success":true,"message_id":246,"wa_message_id":"3EB00D4C6AEE1507F069DD","quota_remaining":4896}
+[2025-12-23 13:34:21] SUCCESS: Sent notification to 6281387734016 for Agus (Check Out)
+[2025-12-23 13:34:21] Updated last ID from 114 to 116
+[2025-12-23 13:40:29] Skip ID 117: User Miyanto already notified for Check Out today
+[2025-12-23 13:40:29] Updated last ID from 116 to 117
+[2025-12-23 14:23:45] User John Doe TIDAK HADIR - masuk jam 10:23:33
+[2025-12-23 14:23:48] WA Response [200]: {"success":true,"message_id":252,"wa_message_id":"3EB034BF4F32EA733D0FF3","quota_remaining":4890}
+[2025-12-23 14:23:48] SUCCESS: Sent notification to 2071982522 for John Doe (Check In)
+[2025-12-23 14:23:48] Updated last ID from 117 to 118
+[2025-12-23 14:24:43] Skip ID 119: User John Doe already notified for Check In today
+[2025-12-23 14:24:43] Updated last ID from 118 to 119
