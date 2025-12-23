@@ -12,6 +12,14 @@ renderHeader('Data Karyawan', 'karyawan');
     <div class="card-header">
         <div class="card-title"><span class="lnr lnr-users"></span> Daftar Karyawan</div>
         <div class="card-subtitle">Total: <?= $result->num_rows ?> karyawan</div>
+        <div class="card-actions">
+            <a href="export_karyawan.php" class="btn btn-success">
+                <span class="lnr lnr-download"></span> Export Excel
+            </a>
+            <a href="import_karyawan.php" class="btn btn-primary">
+                <span class="lnr lnr-upload"></span> Import
+            </a>
+        </div>
     </div>
     
     <div class="table-container">

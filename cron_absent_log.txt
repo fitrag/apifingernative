@@ -22,3 +22,6 @@
 [2025-12-23 14:22:50] User John Doe TIDAK HADIR - belum absen sama sekali
 [2025-12-23 14:22:51] WA Response [200]: {"success":true,"message_id":251,"wa_message_id":"3EB00C59588FBEFE8E0BC4","quota_remaining":4891}
 [2025-12-23 14:22:51] SUCCESS: Sent absent notification to 6285609136570 for John Doe
+[2025-12-23 14:48:44] User Fadila Fitra Kusuma Jaya TIDAK HADIR - belum absen sama sekali
+[2025-12-23 14:48:46] CURL Error: Failed to connect to 127.0.0.1 port 8000 after 2034 ms: Couldn't connect to server
+[2025-12-23 14:48:46] FAILED: Added to queue - 6285609136570 for Fadila Fitra Kusuma Jaya

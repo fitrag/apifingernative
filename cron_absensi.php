@@ -158,7 +158,7 @@ while ($row = $result->fetch_assoc()) {
     $userid = $row['userid'];
     $checktime = $row['checktime'];
     $checktype = $row['checktype'];
-    $tipe = $checktype == '0' ? 'Check In' : 'Check Out';
+    $tipe = $checktype == '0' ? 'Masuk' : 'Pulang';
     
     // Cek apakah user ini sudah pernah dapat notif untuk tipe ini hari ini
     if (isAlreadyNotified($userid, $checktime, $checktype)) {
@@ -179,24 +179,24 @@ while ($row = $result->fetch_assoc()) {
     $waktu = date('d/m/Y H:i:s', strtotime($checktime));
     $jamAbsen = date('H:i:s', strtotime($checktime));
     
-    // Cek apakah Check In
+    // Cek apakah Check In (Masuk)
     if ($checktype == '0') {
         if ($jamAbsen > $BATAS_JAM_TIDAK_HADIR) {
-            // Check In lebih dari jam batas = TIDAK HADIR
+            // Masuk lebih dari jam batas = TIDAK HADIR
             $message = "❌ *NOTIFIKASI TIDAK HADIR*\n\n";
             $message .= "Nama: {$row['name']}\n";
-            $message .= "Badge: {$row['badgenumber']}\n";
+            $message .= "NIS: {$row['badgenumber']}\n";
             $message .= "Jam Masuk: {$jamAbsen}\n";
             $message .= "Batas Jam: " . $BATAS_JAM_TIDAK_HADIR . "\n";
             $message .= "Tanggal: " . date('d/m/Y', strtotime($checktime)) . "\n\n";
-            $message .= "_Anda tercatat TIDAK HADIR karena check in lebih dari jam " . substr($BATAS_JAM_TIDAK_HADIR, 0, 5) . "_";
+            $message .= "_Anda tercatat TIDAK HADIR karena masuk lebih dari jam " . substr($BATAS_JAM_TIDAK_HADIR, 0, 5) . "_";
             
             logMessage("User {$row['name']} TIDAK HADIR - masuk jam {$jamAbsen}");
         } elseif ($jamAbsen > $BATAS_JAM_MASUK) {
-            // Check In lebih dari jam masuk tapi sebelum batas = TERLAMBAT
+            // Masuk lebih dari jam masuk tapi sebelum batas = TERLAMBAT
             $message = "⚠️ *NOTIFIKASI KETERLAMBATAN*\n\n";
             $message .= "Nama: {$row['name']}\n";
-            $message .= "Badge: {$row['badgenumber']}\n";
+            $message .= "NIS: {$row['badgenumber']}\n";
             $message .= "Jam Masuk: {$jamAbsen}\n";
             $message .= "Batas Jam: " . $BATAS_JAM_MASUK . "\n";
             $message .= "Tanggal: " . date('d/m/Y', strtotime($checktime)) . "\n\n";
@@ -204,22 +204,22 @@ while ($row = $result->fetch_assoc()) {
             
             logMessage("User {$row['name']} TERLAMBAT - masuk jam {$jamAbsen}");
         } else {
-            // Check In tepat waktu
-            $message = "📋 *NOTIFIKASI ABSENSI*\n\n";
+            // Masuk tepat waktu
+            $message = "✅ *NOTIFIKASI ABSENSI MASUK*\n\n";
             $message .= "Nama: {$row['name']}\n";
-            $message .= "Badge: {$row['badgenumber']}\n";
+            $message .= "NIS: {$row['badgenumber']}\n";
             $message .= "Tipe: {$tipe}\n";
             $message .= "Waktu: {$waktu}\n\n";
-            $message .= "_Pesan otomatis dari sistem absensi_";
+            $message .= "_Terima kasih, Anda hadir tepat waktu_";
         }
     } else {
-        // Check Out
-        $message = "📋 *NOTIFIKASI ABSENSI*\n\n";
+        // Pulang
+        $message = "🏠 *NOTIFIKASI ABSENSI PULANG*\n\n";
         $message .= "Nama: {$row['name']}\n";
-        $message .= "Badge: {$row['badgenumber']}\n";
+        $message .= "NIS: {$row['badgenumber']}\n";
         $message .= "Tipe: {$tipe}\n";
         $message .= "Waktu: {$waktu}\n\n";
-        $message .= "_Pesan otomatis dari sistem absensi_";
+        $message .= "_Hati-hati di jalan, sampai jumpa besok_";
     }
     
     // Kirim WhatsApp

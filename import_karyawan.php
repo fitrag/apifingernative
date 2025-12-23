@@ -31,8 +31,8 @@ switch ($action) {
         // BOM untuk Excel UTF-8
         fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
         
-        // Header sesuai kolom database
-        fputcsv($output, ['badgenumber', 'name', 'Card', 'defaultdeptid', 'SN'], ';');
+        // Header sesuai kolom database (Title = badgenumber)
+        fputcsv($output, ['Title', 'name', 'Card', 'defaultdeptid', 'SN'], ';');
         
         // Contoh data
         fputcsv($output, ['001', 'John Doe', '628123456789', '1', 'DEVICE001'], ';');
@@ -75,7 +75,7 @@ switch ($action) {
                     $rowData = array_combine($header, array_pad($row, count($header), ''));
                     $data[] = [
                         'line' => $lineNum,
-                        'badgenumber' => trim($rowData['badgenumber'] ?? ''),
+                        'title' => trim($rowData['title'] ?? ''),
                         'name' => trim($rowData['name'] ?? ''),
                         'card' => trim($rowData['card'] ?? ''),
                         'defaultdeptid' => trim($rowData['defaultdeptid'] ?? '1'),
@@ -105,7 +105,7 @@ switch ($action) {
                         $rowData = array_combine($header, array_pad($row, count($header), ''));
                         $data[] = [
                             'line' => $lineNum,
-                            'badgenumber' => trim($rowData['badgenumber'] ?? ''),
+                            'title' => trim($rowData['title'] ?? ''),
                             'name' => trim($rowData['name'] ?? ''),
                             'card' => trim($rowData['card'] ?? ''),
                             'defaultdeptid' => trim($rowData['defaultdeptid'] ?? '1'),
@@ -135,17 +135,22 @@ switch ($action) {
         
         $mode = $_POST['mode'] ?? 'skip'; // skip, update, replace
         
+        // Ambil badgenumber terbesar untuk auto-increment
+        $maxBadgeResult = $conn->query("SELECT MAX(CAST(badgenumber AS UNSIGNED)) as max_badge FROM userinfo WHERE badgenumber REGEXP '^[0-9]+$'");
+        $maxBadgeRow = $maxBadgeResult->fetch_assoc();
+        $nextBadgeNumber = ($maxBadgeRow['max_badge'] ?? 0) + 1;
+        
         foreach ($data as $row) {
-            // Validasi
-            if (empty($row['badgenumber']) || empty($row['name'])) {
-                $errors[] = "Baris {$row['line']}: Badge number dan nama wajib diisi";
+            // Validasi - hanya nama yang wajib, title opsional
+            if (empty($row['name'])) {
+                $errors[] = "Baris {$row['line']}: Nama wajib diisi";
                 $skipped++;
                 continue;
             }
             
-            // Cek apakah sudah ada
-            $stmt = $conn->prepare("SELECT userid FROM userinfo WHERE badgenumber = ?");
-            $stmt->bind_param("s", $row['badgenumber']);
+            // Cek apakah sudah ada berdasarkan nama dan title
+            $stmt = $conn->prepare("SELECT userid FROM userinfo WHERE name = ? AND (title = ? OR (title IS NULL AND ? = ''))");
+            $stmt->bind_param("sss", $row['name'], $row['title'], $row['title']);
             $stmt->execute();
             $result = $stmt->get_result();
             $existing = $result->fetch_assoc();
@@ -157,21 +162,24 @@ switch ($action) {
                     continue;
                 } elseif ($mode === 'update') {
                     // Update data yang ada
-                    $stmt = $conn->prepare("UPDATE userinfo SET name = ?, Card = ?, defaultdeptid = ? WHERE badgenumber = ?");
+                    $stmt = $conn->prepare("UPDATE userinfo SET title = ?, Card = ?, defaultdeptid = ? WHERE userid = ?");
                     $deptId = !empty($row['defaultdeptid']) ? (int)$row['defaultdeptid'] : 1;
-                    $stmt->bind_param("ssis", $row['name'], $row['card'], $deptId, $row['badgenumber']);
+                    $stmt->bind_param("ssii", $row['title'], $row['card'], $deptId, $existing['userid']);
                     $stmt->execute();
                     $stmt->close();
                     $updated++;
                 }
             } else {
-                // Insert baru
-                $stmt = $conn->prepare("INSERT INTO userinfo (badgenumber, name, Card, defaultdeptid, sn) VALUES (?, ?, ?, ?, ?)");
+                // Insert baru - badgenumber auto-increment dari nilai terbesar (9 digit)
+                $newBadgeNumber = str_pad($nextBadgeNumber, 9, '0', STR_PAD_LEFT); // Format: 000000001, 000000002, dst
+                $stmt = $conn->prepare("INSERT INTO userinfo (badgenumber, name, title, Card, defaultdeptid, SN) VALUES (?, ?, ?, ?, ?, ?)");
                 $deptId = !empty($row['defaultdeptid']) ? (int)$row['defaultdeptid'] : 1;
                 $sn = !empty($row['sn']) ? $row['sn'] : '';
-                $stmt->bind_param("sssis", $row['badgenumber'], $row['name'], $row['card'], $deptId, $sn);
+                $title = !empty($row['title']) ? $row['title'] : null;
+                $stmt->bind_param("ssssis", $newBadgeNumber, $row['name'], $title, $row['card'], $deptId, $sn);
                 if ($stmt->execute()) {
                     $imported++;
+                    $nextBadgeNumber++; // Increment untuk data berikutnya
                 } else {
                     $errors[] = "Baris {$row['line']}: Gagal menyimpan - " . $stmt->error;
                     $skipped++;

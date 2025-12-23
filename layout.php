@@ -58,9 +58,10 @@ function renderHeader($title = 'Dashboard', $activePage = '') {
             box-shadow: 0 1px 3px rgba(0,0,0,0.08);
             padding: 24px; margin-bottom: 24px;
         }
-        .card-header { margin-bottom: 20px; }
+        .card-header { margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; }
         .card-title { font-size: 16px; font-weight: 600; color: #1e293b; display: flex; align-items: center; gap: 8px; }
         .card-subtitle { font-size: 13px; color: #64748b; margin-top: 4px; }
+        .card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
         
         /* Stats Grid */
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 24px; }
