@@ -1,23 +1,50 @@
 <?php
-// File JSON untuk settings
+// File JSON untuk settings dengan caching
 define('SETTINGS_FILE', __DIR__ . '/settings.json');
 
-function getSettings() {
-    if (file_exists(SETTINGS_FILE)) {
-        $content = file_get_contents(SETTINGS_FILE);
-        $data = json_decode($content, true);
-        if (is_array($data)) return $data;
+// Cache settings dalam memory untuk menghindari file read berulang
+class SettingsCache {
+    private static $cache = null;
+    private static $lastModified = 0;
+    
+    public static function get() {
+        $currentMtime = file_exists(SETTINGS_FILE) ? filemtime(SETTINGS_FILE) : 0;
+        
+        // Reload jika file berubah atau cache kosong
+        if (self::$cache === null || self::$lastModified !== $currentMtime) {
+            if (file_exists(SETTINGS_FILE)) {
+                $content = file_get_contents(SETTINGS_FILE);
+                self::$cache = json_decode($content, true) ?: [];
+            } else {
+                self::$cache = [];
+            }
+            self::$lastModified = $currentMtime;
+        }
+        return self::$cache;
     }
-    return array();
+    
+    public static function set($data) {
+        self::$cache = $data;
+        file_put_contents(SETTINGS_FILE, json_encode($data, JSON_PRETTY_PRINT), LOCK_EX);
+        self::$lastModified = filemtime(SETTINGS_FILE);
+    }
+    
+    public static function invalidate() {
+        self::$cache = null;
+    }
+}
+
+function getSettings() {
+    return SettingsCache::get();
 }
 
 function saveSettings($data) {
-    file_put_contents(SETTINGS_FILE, json_encode($data, JSON_PRETTY_PRINT), LOCK_EX);
+    SettingsCache::set($data);
 }
 
 function getSetting($key, $default = null) {
     $settings = getSettings();
-    return isset($settings[$key]) ? $settings[$key] : $default;
+    return $settings[$key] ?? $default;
 }
 
 function setSetting($key, $value) {
@@ -29,6 +56,16 @@ function setSetting($key, $value) {
 
 function getAllSettings() {
     return getSettings();
+}
+
+// Batch update settings untuk mengurangi file writes
+function setSettings($keyValues) {
+    $settings = getSettings();
+    foreach ($keyValues as $key => $value) {
+        $settings[$key] = $value;
+    }
+    $settings['updated_at'] = date('Y-m-d H:i:s');
+    saveSettings($settings);
 }
 
 // Default values

@@ -140,8 +140,28 @@
     </main>
 </div>
 <script>
-const { createApp, ref, computed, onMounted, onUnmounted } = Vue;
+const { createApp, ref, computed, onMounted, onUnmounted, watch } = Vue;
 const { createRouter, createWebHashHistory } = VueRouter;
+
+// Utility: Debounce untuk mengurangi request berlebihan
+const debounce = (fn, delay) => {
+    let timeout;
+    return (...args) => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => fn(...args), delay);
+    };
+};
+
+// Utility: Cache sederhana untuk API responses
+const apiCache = new Map();
+const cachedFetch = async (url, ttl = 30000) => {
+    const cached = apiCache.get(url);
+    if (cached && Date.now() - cached.time < ttl) return cached.data;
+    const res = await fetch(url);
+    const data = await res.json();
+    apiCache.set(url, { data, time: Date.now() });
+    return data;
+};
 
 // Loading Component
 const LoadingState = `<div class="loading-container"><div class="loading-spinner"></div><div class="loading-text">Memuat data...</div></div>`;
@@ -260,12 +280,20 @@ const Karyawan = {
                         <input type="text" v-model="editForm.badgenumber" class="form-input" placeholder="001">
                     </div>
                     <div class="form-group">
+                        <label class="form-label">NIS (Title) *</label>
+                        <input type="text" v-model="editForm.title" class="form-input" placeholder="NIS / Nomor Induk">
+                    </div>
+                    <div class="form-group">
                         <label class="form-label">Nama *</label>
                         <input type="text" v-model="editForm.name" class="form-input" placeholder="Nama Karyawan">
                     </div>
                     <div class="form-group">
                         <label class="form-label">No. WhatsApp</label>
                         <input type="text" v-model="editForm.Card" class="form-input" placeholder="628123456789">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">FPHONE</label>
+                        <input type="text" v-model="editForm.FPHONE" class="form-input" placeholder="Nomor telepon lain">
                     </div>
                     <div class="form-group">
                         <label class="form-label">Dept ID</label>
@@ -303,11 +331,11 @@ const Karyawan = {
                 <div v-else class="table-container">
                     <table><thead><tr>
                         <th style="width:40px"><input type="checkbox" @change="toggleAll" :checked="selected.length === data.length && data.length > 0"></th>
-                        <th>No</th><th>Badge</th><th>Nama</th><th>No. WhatsApp</th><th>Status</th><th style="width:100px">Aksi</th>
+                        <th>No</th><th>Badge</th><th>NIS</th><th>Nama</th><th>No. WhatsApp</th><th>FPHONE</th><th>Status</th><th style="width:100px">Aksi</th>
                     </tr></thead>
                     <tbody><tr v-for="(row, i) in data" :key="row.userid" :class="{'selected-row': selected.includes(row.userid)}">
                         <td><input type="checkbox" :value="row.userid" v-model="selected"></td>
-                        <td>{{ i+1 }}</td><td>{{ row.badgenumber }}</td><td>{{ row.name }}</td><td>{{ row.Card || '-' }}</td>
+                        <td>{{ i+1 }}</td><td>{{ row.badgenumber }}</td><td>{{ row.title || '-' }}</td><td>{{ row.name }}</td><td>{{ row.Card || '-' }}</td><td>{{ row.FPHONE || '-' }}</td>
                         <td><span :class="row.Card ? 'badge badge-success' : 'badge badge-danger'"><span :class="row.Card ? 'lnr lnr-checkmark-circle' : 'lnr lnr-cross-circle'"></span> {{ row.Card ? 'Aktif' : 'Tidak Ada' }}</span></td>
                         <td>
                             <button class="btn-icon" @click="openEdit(row)" title="Edit"><span class="lnr lnr-pencil"></span></button>
@@ -327,7 +355,7 @@ const Karyawan = {
         
         // Edit state
         const showEdit = ref(false); const saving = ref(false);
-        const editForm = ref({ userid: 0, badgenumber: '', name: '', Card: '', defaultdeptid: 1 });
+        const editForm = ref({ userid: 0, badgenumber: '', title: '', name: '', Card: '', FPHONE: '', defaultdeptid: 1 });
         
         // Delete state
         const showDeleteConfirm = ref(false); const deleting = ref(false);
@@ -364,7 +392,7 @@ const Karyawan = {
         };
         
         // Edit functions
-        const openAdd = () => { editForm.value = { userid: 0, badgenumber: '', name: '', Card: '', defaultdeptid: 1 }; showEdit.value = true; };
+        const openAdd = () => { editForm.value = { userid: 0, badgenumber: '', title: '', name: '', Card: '', FPHONE: '', defaultdeptid: 1 }; showEdit.value = true; };
         const openEdit = (row) => { editForm.value = { ...row }; showEdit.value = true; };
         const saveKaryawan = async () => {
             if (!editForm.value.badgenumber || !editForm.value.name) { showMsg('Badge dan nama wajib diisi', 'error'); return; }
@@ -532,10 +560,33 @@ const Pengaturan = {
                     <button class="btn btn-primary" :class="{'btn-loading': saving}" :disabled="saving" @click="saveJam"><span class="lnr lnr-checkmark-circle"></span> Simpan</button>
                 </div>
                 <div class="card">
+                    <div class="card-header"><div class="card-title"><span class="lnr lnr-exit"></span> Pengaturan Jam Auto Checkout Per Hari</div><div class="card-subtitle">Absen masuk setelah jam ini akan dianggap sebagai checkout/pulang</div></div>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px">
+                        <div v-for="(name, num) in daysList" :key="num" class="form-group" style="margin:0">
+                            <label class="form-label" style="font-size:12px">{{ name }}</label>
+                            <input type="time" v-model="form.jam_auto_checkout_harian[num]" class="form-input">
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" style="margin-top:16px" :class="{'btn-loading': saving}" :disabled="saving" @click="saveJamAutoCheckoutHarian"><span class="lnr lnr-checkmark-circle"></span> Simpan</button>
+                </div>
+                <div class="card">
                     <div class="card-header"><div class="card-title"><span class="lnr lnr-bubble"></span> Pengaturan WhatsApp API</div></div>
                     <div class="form-group"><label class="form-label">API URL</label><input type="url" v-model="form.wa_api_url" class="form-input"></div>
                     <div class="form-group"><label class="form-label">API Token</label><input type="text" v-model="form.wa_api_token" class="form-input"></div>
                     <button class="btn btn-primary" :class="{'btn-loading': saving}" :disabled="saving" @click="saveWa"><span class="lnr lnr-checkmark-circle"></span> Simpan</button>
+                </div>
+                <div class="card">
+                    <div class="card-header"><div class="card-title"><span class="lnr lnr-sync"></span> Pengaturan Sync Absensi API</div><div class="card-subtitle">Endpoint untuk sinkronisasi data absensi ke sistem eksternal</div></div>
+                    <div class="form-group"><label class="form-label">Sync API URL</label><input type="url" v-model="form.sync_api_url" class="form-input" placeholder="http://127.0.0.1:8000/api/attendance/sync"><div class="form-hint">Endpoint URL untuk mengirim data absensi</div></div>
+                    <div class="form-group"><label class="form-label">API Token (Opsional)</label><input type="text" v-model="form.sync_api_token" class="form-input" placeholder="Bearer token"><div class="form-hint">Token autentikasi jika diperlukan</div></div>
+                    <div class="form-group"><label class="form-label">Interval Sinkronisasi (Menit)</label><input type="number" v-model="form.sync_interval" class="form-input" min="1" max="1440" placeholder="60"><div class="form-hint">Durasi interval sinkronisasi dalam menit (1-1440). Default: 60 menit</div></div>
+                    <button class="btn btn-primary" :class="{'btn-loading': saving}" :disabled="saving" @click="saveSyncApi"><span class="lnr lnr-checkmark-circle"></span> Simpan</button>
+                </div>
+                <div class="card">
+                    <div class="card-header"><div class="card-title"><span class="lnr lnr-book"></span> Pengaturan SIAKAD API (Izin/Sakit)</div><div class="card-subtitle">API untuk mengambil data siswa izin/sakit dari SIAKAD</div></div>
+                    <div class="form-group"><label class="form-label">SIAKAD API URL</label><input type="url" v-model="form.siakad_api_url" class="form-input" placeholder="https://siakads.kurikulum-skansa.id/api/attendance/absences"><div class="form-hint">Endpoint URL untuk mengambil data izin/sakit</div></div>
+                    <div class="form-group"><label class="form-label">API Token (Opsional)</label><input type="text" v-model="form.siakad_api_token" class="form-input" placeholder="Bearer token"><div class="form-hint">Token autentikasi jika diperlukan</div></div>
+                    <button class="btn btn-primary" :class="{'btn-loading': saving}" :disabled="saving" @click="saveSiakadApi"><span class="lnr lnr-checkmark-circle"></span> Simpan</button>
                 </div>
             </div>
             <div class="card" style="margin-top:24px">
@@ -564,7 +615,13 @@ const Pengaturan = {
         </div>`,
     setup() {
         const loading = ref(true); const saving = ref(false);
-        const form = ref({ jam_masuk: '07:00', jam_batas_terlambat: '08:00', jam_batas_pulang: '17:00', wa_api_url: '', wa_api_token: '', timezone: 'Asia/Jakarta', hari_libur: [] });
+        const form = ref({ 
+            jam_masuk: '07:00', jam_batas_terlambat: '08:00', jam_batas_pulang: '17:00', 
+            jam_auto_checkout_harian: { '1': '14:00', '2': '14:00', '3': '14:00', '4': '14:00', '5': '14:00', '6': '12:00', '7': '12:00' },
+            wa_api_url: '', wa_api_token: '', sync_api_url: '', sync_api_token: '', sync_interval: 60, 
+            siakad_api_url: '', siakad_api_token: '',
+            timezone: 'Asia/Jakarta', hari_libur: [] 
+        });
         const timezoneList = ref({}); const daysList = ref({});
         const message = ref(''); const messageType = ref('success');
         const serverTime = ref('--:--:--'); const serverDate = ref('--');
@@ -572,7 +629,13 @@ const Pengaturan = {
         const load = async () => {
             loading.value = true;
             const res = await fetch('api.php?action=settings'); const r = await res.json();
-            form.value = { ...r.data, jam_masuk: r.data.jam_masuk?.slice(0,5), jam_batas_terlambat: r.data.jam_batas_terlambat?.slice(0,5), jam_batas_pulang: r.data.jam_batas_pulang?.slice(0,5) };
+            form.value = { 
+                ...r.data, 
+                jam_masuk: r.data.jam_masuk?.slice(0,5), 
+                jam_batas_terlambat: r.data.jam_batas_terlambat?.slice(0,5), 
+                jam_batas_pulang: r.data.jam_batas_pulang?.slice(0,5),
+                jam_auto_checkout_harian: r.data.jam_auto_checkout_harian || { '1': '14:00', '2': '14:00', '3': '14:00', '4': '14:00', '5': '14:00', '6': '12:00', '7': '12:00' }
+            };
             timezoneList.value = r.timezone_list; daysList.value = r.days_list;
             loading.value = false;
         };
@@ -584,12 +647,15 @@ const Pengaturan = {
             showMsg('Pengaturan berhasil disimpan'); saving.value = false;
         };
         const saveJam = () => save('jam', { jam_masuk: form.value.jam_masuk, jam_batas_terlambat: form.value.jam_batas_terlambat, jam_batas_pulang: form.value.jam_batas_pulang });
+        const saveJamAutoCheckoutHarian = () => save('jam_auto_checkout_harian', { jam_auto_checkout_harian: form.value.jam_auto_checkout_harian });
         const saveWa = () => save('wa', { wa_api_url: form.value.wa_api_url, wa_api_token: form.value.wa_api_token });
+        const saveSyncApi = () => save('sync_api', { sync_api_url: form.value.sync_api_url, sync_api_token: form.value.sync_api_token, sync_interval: form.value.sync_interval });
+        const saveSiakadApi = () => save('siakad_api', { siakad_api_url: form.value.siakad_api_url, siakad_api_token: form.value.siakad_api_token });
         const saveTimezone = () => save('timezone', { timezone: form.value.timezone });
         const saveHariLibur = () => save('hari_libur', { hari_libur: form.value.hari_libur });
         onMounted(() => { load(); updateTime(); timeInterval = setInterval(updateTime, 1000); });
         onUnmounted(() => clearInterval(timeInterval));
-        return { loading, saving, form, timezoneList, daysList, message, messageType, serverTime, serverDate, saveJam, saveWa, saveTimezone, saveHariLibur };
+        return { loading, saving, form, timezoneList, daysList, message, messageType, serverTime, serverDate, saveJam, saveJamAutoCheckoutHarian, saveWa, saveSyncApi, saveSiakadApi, saveTimezone, saveHariLibur };
     }
 };
 

@@ -1,88 +1,70 @@
 <?php
+/**
+ * Cron Job: Retry Failed WA Messages
+ * Optimized Version
+ */
+
 require_once 'config.php';
 require_once 'wa_queue.php';
 require_once 'settings.php';
+require_once 'log_cleaner.php';
 
-// Ambil konfigurasi WA API dari settings
-$WA_API_URL = getSetting('wa_api_url', 'http://127.0.0.1:8000/api/send-message');
-$WA_TOKEN = getSetting('wa_api_token', '');
+$settings = getSettings();
+$WA_API_URL = $settings['wa_api_url'] ?? 'http://127.0.0.1:8000/api/send-message';
+$WA_TOKEN = $settings['wa_api_token'] ?? '';
 define('MAX_RETRY', 5);
 
-function sendWaRetry($phone, $message) {
+function sendWA($phone, $message) {
     global $WA_API_URL, $WA_TOKEN;
-    
     $ch = curl_init();
-    $data = array('phone' => $phone, 'message' => $message);
-    curl_setopt($ch, CURLOPT_URL, $WA_API_URL);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-        'Content-Type: application/json',
-        'Authorization: Bearer ' . $WA_TOKEN
-    ));
-    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-    $response = curl_exec($ch);
+    curl_setopt_array($ch, [
+        CURLOPT_URL => $WA_API_URL,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => json_encode(['phone' => $phone, 'message' => $message]),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Authorization: Bearer ' . $WA_TOKEN],
+        CURLOPT_TIMEOUT => 15,
+        CURLOPT_CONNECTTIMEOUT => 5
+    ]);
+    curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $error = curl_error($ch);
     curl_close($ch);
-    if ($error) {
-        logRetry('CURL Error: ' . $error);
-        return false;
-    }
-    logRetry('WA Response [' . $httpCode . ']: ' . $response);
     return $httpCode >= 200 && $httpCode < 300;
 }
 
-function logRetry($msg) {
-    $ts = date('Y-m-d H:i:s');
-    $f = __DIR__ . '/cron_retry_log.txt';
-    file_put_contents($f, '[' . $ts . '] ' . $msg . "\n", FILE_APPEND);
+function logMsg($msg) {
+    file_put_contents(__DIR__ . '/cron_retry_log.txt', '[' . date('Y-m-d H:i:s') . '] ' . $msg . "\n", FILE_APPEND);
 }
 
-// Main Process
+// Main
 $queue = getWaQueue();
-$totalQueue = count($queue);
+if (empty($queue)) exit;
 
-if ($totalQueue == 0) {
-    exit; // Tidak ada antrian
-}
+$success = 0;
+$failed = 0;
+$removed = 0;
 
-logRetry("=== Memproses " . $totalQueue . " pesan dalam antrian ===");
-
-$successCount = 0;
-$failCount = 0;
-$removedCount = 0;
-
-// Proses dari belakang supaya index tidak berubah saat remove
-for ($i = $totalQueue - 1; $i >= 0; $i--) {
+// Process from end to avoid index issues
+for ($i = count($queue) - 1; $i >= 0; $i--) {
     $item = $queue[$i];
     
-    // Cek jika sudah melebihi max retry
     if ($item['retry_count'] >= MAX_RETRY) {
-        logRetry("REMOVED: " . $item['phone'] . " - " . $item['type'] . " (exceeded max retry)");
         removeFromQueue($i);
-        $removedCount++;
+        $removed++;
         continue;
     }
     
-    logRetry("RETRY #" . ($item['retry_count'] + 1) . ": " . $item['phone'] . " - " . $item['type']);
-    
-    $sent = sendWaRetry($item['phone'], $item['message']);
-    
-    if ($sent) {
-        logRetry("SUCCESS: Sent to " . $item['phone']);
+    if (sendWA($item['phone'], $item['message'])) {
         removeFromQueue($i);
-        $successCount++;
+        $success++;
     } else {
-        logRetry("FAILED: " . $item['phone'] . " - will retry later");
         updateRetryCount($i);
-        $failCount++;
+        $failed++;
     }
     
-    // Delay 1 detik antar pengiriman
-    sleep(1);
+    usleep(500000); // 500ms delay
 }
 
-logRetry("=== Selesai: Success=" . $successCount . ", Failed=" . $failCount . ", Removed=" . $removedCount . " ===");
-?>
+if ($success + $failed + $removed > 0) {
+    logMsg("Retry: {$success} success, {$failed} failed, {$removed} removed");
+}

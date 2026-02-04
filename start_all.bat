@@ -1,73 +1,43 @@
 @echo off
-title Sistem Absensi - Full Stack
+title Sistem Absensi
 color 0A
 
-echo ============================================
-echo    SISTEM ABSENSI - FULL STACK LAUNCHER
-echo ============================================
 echo.
-echo Script ini akan menjalankan:
-echo   1. PHP Local Server (port 8080)
-echo   2. Cron Job Monitor (background)
-echo.
-echo ============================================
+echo   SISTEM ABSENSI - LAUNCHER
 echo.
 
 :: Set variables
 set PORT=8080
 set SCRIPT_DIR=%~dp0
 
-:: Check PHP
+:: Quick PHP check
 where php >nul 2>nul
 if %errorlevel% neq 0 (
-    echo [ERROR] PHP tidak ditemukan! Pastikan PHP sudah terinstall dan ada di PATH.
+    echo [ERROR] PHP tidak ditemukan!
     pause
     exit /b 1
 )
 
-echo [INFO] PHP ditemukan: 
-php -v | findstr /i "php"
-echo.
-
-:: Check if port is available
+:: Quick port check
 netstat -ano | findstr ":%PORT%" >nul
-if %errorlevel%==0 (
-    echo [WARNING] Port %PORT% sudah digunakan, mencoba port 8081...
-    set PORT=8081
-)
+if %errorlevel%==0 set PORT=8081
 
-:: Start Cron Monitor in background
-echo [INFO] Memulai Cron Job Monitor...
-start /B cmd /c "cd /d %SCRIPT_DIR% && powershell -ExecutionPolicy Bypass -File start_monitor.ps1 > nul 2>&1"
-echo [OK] Cron Job Monitor berjalan di background
-echo.
+:: Start optimized cron in background (single process)
+echo [OK] Starting Cron Monitor...
+start /B powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File "%SCRIPT_DIR%start_monitor.ps1"
 
-:: Wait a moment
-timeout /t 2 /nobreak >nul
+timeout /t 1 /nobreak >nul
 
-:: Start PHP Server
-echo [INFO] Memulai PHP Server di port %PORT%...
+echo [OK] Server: http://localhost:%PORT%/app.php
 echo.
-echo ============================================
-echo    SERVER AKTIF
-echo ============================================
-echo.
-echo    URL Aplikasi: http://localhost:%PORT%/app.php
-echo    URL Installer: http://localhost:%PORT%/install.php
-echo.
-echo    Tekan Ctrl+C untuk menghentikan semua
-echo ============================================
+echo Tekan Ctrl+C untuk stop
 echo.
 
-:: Open browser automatically
+:: Open browser
 start http://localhost:%PORT%/app.php
 
-:: Run PHP server (foreground)
+:: Run PHP server
 php -S localhost:%PORT% -t "%SCRIPT_DIR%"
 
-:: When server stops, also stop cron
-echo.
-echo [INFO] Menghentikan semua proses...
-taskkill /F /IM php.exe >nul 2>nul
-
-pause
+:: Cleanup on exit
+taskkill /F /FI "WINDOWTITLE eq Absensi Monitor*" >nul 2>nul

@@ -1,102 +1,84 @@
 # ============================================
-#    SISTEM ABSENSI - FULL STACK LAUNCHER
-#    PowerShell Version
+#    SISTEM ABSENSI - OPTIMIZED LAUNCHER
 # ============================================
 
-$Host.UI.RawUI.WindowTitle = "Sistem Absensi - Full Stack"
+$ErrorActionPreference = "SilentlyContinue"
+$Host.UI.RawUI.WindowTitle = "Sistem Absensi"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $port = 8080
 
-Write-Host "============================================" -ForegroundColor Cyan
-Write-Host "   SISTEM ABSENSI - FULL STACK LAUNCHER" -ForegroundColor Cyan
-Write-Host "============================================" -ForegroundColor Cyan
-Write-Host ""
+Write-Host "`n  SISTEM ABSENSI - LAUNCHER`n" -ForegroundColor Cyan
 
-# Check PHP
-$phpPath = Get-Command php -ErrorAction SilentlyContinue
-if (-not $phpPath) {
+# Quick PHP check
+if (-not (Get-Command php -ErrorAction SilentlyContinue)) {
     Write-Host "[ERROR] PHP tidak ditemukan!" -ForegroundColor Red
-    Write-Host "Pastikan PHP sudah terinstall dan ada di PATH." -ForegroundColor Yellow
-    Read-Host "Tekan Enter untuk keluar"
     exit 1
 }
 
-Write-Host "[INFO] PHP ditemukan: $($phpPath.Source)" -ForegroundColor Green
-Write-Host ""
+# Quick port check
+if (Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue) { $port = 8081 }
 
-# Check if port is available
-$portInUse = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
-if ($portInUse) {
-    Write-Host "[WARNING] Port $port sudah digunakan, mencoba port 8081..." -ForegroundColor Yellow
-    $port = 8081
-}
-
-# Create log directory if not exists
-$logDir = Join-Path $scriptDir "logs"
-if (-not (Test-Path $logDir)) {
-    New-Item -ItemType Directory -Path $logDir -Force | Out-Null
-}
-
-# Start Cron Job Monitor as background job
-Write-Host "[INFO] Memulai Cron Job Monitor..." -ForegroundColor Yellow
-
+# Start optimized cron job
 $cronJob = Start-Job -ScriptBlock {
     param($dir)
     Set-Location $dir
     
-    while ($true) {
-        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-        
-        # Run cron scripts
+    # Helper function to get sync interval via PHP
+    function Get-SyncInterval {
         try {
-            php cron_absensi.php 2>&1 | Out-Null
+            $result = php -r "require 'settings.php'; echo getSetting('sync_interval', 60);" 2>&1
+            $interval = [int]$result
+            if ($interval -ge 1 -and $interval -le 1440) { return $interval }
+        } catch {}
+        return 60
+    }
+    
+    $lastSync = [DateTime]::MinValue
+    $lastPeriodic = [DateTime]::MinValue
+    $syncInterval = Get-SyncInterval
+    $firstRun = $true
+    
+    while ($true) {
+        $now = Get-Date
+        
+        # Absensi check - setiap 3 detik
+        php cron_absensi.php 2>&1 | Out-Null
+        
+        # Periodic checks - setiap 30 detik
+        if (($now - $lastPeriodic).TotalSeconds -ge 30) {
             php cron_tidak_hadir.php 2>&1 | Out-Null
             php cron_bolos.php 2>&1 | Out-Null
+            php cron_izin_sakit.php 2>&1 | Out-Null
             php cron_retry_queue.php 2>&1 | Out-Null
-        } catch {
-            # Ignore errors
+            $lastPeriodic = $now
+            
+            # Reload sync interval via PHP
+            $syncInterval = Get-SyncInterval
         }
         
-        Start-Sleep -Seconds 5
+        # Sync attendance - jalankan pertama kali, lalu sesuai interval
+        if ($firstRun -or ($now - $lastSync).TotalMinutes -ge $syncInterval) {
+            php cron_sync_attendance.php 2>&1 | Out-Null
+            $lastSync = $now
+            $firstRun = $false
+        }
+        
+        Start-Sleep -Seconds 3
     }
 } -ArgumentList $scriptDir
 
-Write-Host "[OK] Cron Job Monitor berjalan (Job ID: $($cronJob.Id))" -ForegroundColor Green
-Write-Host ""
-
-# Start PHP Server
-Write-Host "[INFO] Memulai PHP Server di port $port..." -ForegroundColor Yellow
-Write-Host ""
-Write-Host "============================================" -ForegroundColor Green
-Write-Host "   SERVER AKTIF" -ForegroundColor Green
-Write-Host "============================================" -ForegroundColor Green
-Write-Host ""
-Write-Host "   URL Aplikasi : " -NoNewline; Write-Host "http://localhost:$port/app.php" -ForegroundColor Cyan
-Write-Host "   URL Installer: " -NoNewline; Write-Host "http://localhost:$port/install.php" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "   Tekan Ctrl+C untuk menghentikan semua" -ForegroundColor Yellow
-Write-Host "============================================" -ForegroundColor Green
-Write-Host ""
+Write-Host "[OK] Cron Monitor aktif" -ForegroundColor Green
+Write-Host "[OK] Server: http://localhost:$port/app.php" -ForegroundColor Cyan
+Write-Host "`nTekan Ctrl+C untuk stop`n" -ForegroundColor Yellow
 
 # Open browser
 Start-Process "http://localhost:$port/app.php"
 
-# Handle Ctrl+C
-$null = Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
-    Write-Host "`n[INFO] Menghentikan semua proses..." -ForegroundColor Yellow
-    Get-Job | Stop-Job
-    Get-Job | Remove-Job
-}
-
 try {
-    # Run PHP server (foreground)
     Set-Location $scriptDir
     php -S localhost:$port -t $scriptDir
 } finally {
-    # Cleanup
-    Write-Host ""
-    Write-Host "[INFO] Menghentikan Cron Job Monitor..." -ForegroundColor Yellow
     Stop-Job -Job $cronJob -ErrorAction SilentlyContinue
     Remove-Job -Job $cronJob -Force -ErrorAction SilentlyContinue
-    Write-Host "[OK] Semua proses dihentikan" -ForegroundColor Green
+    Write-Host "`n[OK] Stopped" -ForegroundColor Green
 }

@@ -1,13 +1,9 @@
 {
     "jam_masuk": "07:00:00",
-    "updated_at": "2025-12-23 11:53:39",
+    "updated_at": "2026-01-19 15:02:35",
     "jam_batas_terlambat": "08:00:00",
     "jam_batas_pulang": "17:00:00",
     "wa_api_url": "http:\/\/127.0.0.1:8000\/api\/send-message",
     "wa_api_token": "wag_kH8tKPAFqn2lSQi80SkvLhJI4tzrAhqR",
-    "timezone": "Asia\/Jakarta",
-    "hari_libur": [
-        "6",
-        "7"
-    ]
+    "timezone": "Asia\/Jakarta"
 }

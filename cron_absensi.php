@@ -1,248 +1,159 @@
 <?php
+/**
+ * Cron Job: Notifikasi Absensi (Masuk/Pulang/Terlambat)
+ * Optimized Version
+ */
+
 require_once 'config.php';
 require_once 'wa_queue.php';
 require_once 'settings.php';
+require_once 'log_cleaner.php';
 
-// Ambil konfigurasi WA API dari settings
-$WA_API_URL = getSetting('wa_api_url', 'http://127.0.0.1:8000/api/send-message');
-$WA_TOKEN = getSetting('wa_api_token', '');
+// Bersihkan log lama (hanya sekali per hari)
+$lastCleanFile = __DIR__ . '/last_clean.txt';
+$today = date('Y-m-d');
+if (!file_exists($lastCleanFile) || trim(file_get_contents($lastCleanFile)) !== $today) {
+    cleanAllCronLogs();
+    file_put_contents($lastCleanFile, $today);
+}
 
-// File untuk menyimpan ID absensi terakhir yang diproses
+// Cek hari libur dulu sebelum load settings lainnya
+if (isHoliday()) exit;
+
+// Load settings sekali saja
+$settings = getSettings();
+$WA_API_URL = $settings['wa_api_url'] ?? 'http://127.0.0.1:8000/api/send-message';
+$WA_TOKEN = $settings['wa_api_token'] ?? '';
+$BATAS_JAM_MASUK = $settings['jam_masuk'] ?? '07:00:00';
+$BATAS_JAM_TIDAK_HADIR = $settings['jam_batas_terlambat'] ?? '08:00:00';
+$JAM_AUTO_CHECKOUT_HARIAN = $settings['jam_auto_checkout_harian'] ?? [
+    '1' => '14:00', '2' => '14:00', '3' => '14:00', '4' => '14:00',
+    '5' => '14:00', '6' => '12:00', '7' => '12:00'
+];
+
 define('LAST_ID_FILE', __DIR__ . '/last_checkin_id.txt');
-// File untuk menyimpan user+tanggal+tipe yang sudah dikirim notifikasinya
 define('SENT_LOG_FILE', __DIR__ . '/sent_notification_log.json');
 
-// Ambil jam dari settings database
-$BATAS_JAM_MASUK = getSetting('jam_masuk', '07:00:00');
-$BATAS_JAM_TIDAK_HADIR = getSetting('jam_batas_terlambat', '08:00:00');
+// Cache sent log dalam memory
+$sentLogCache = null;
 
-function getLastProcessedId()
-{
-    if (file_exists(LAST_ID_FILE)) {
-        return (int) trim(file_get_contents(LAST_ID_FILE));
+function getJamAutoCheckout($checktime) {
+    global $JAM_AUTO_CHECKOUT_HARIAN;
+    $day = date('N', strtotime($checktime));
+    $jam = $JAM_AUTO_CHECKOUT_HARIAN[$day] ?? '14:00';
+    return strlen($jam) === 5 ? $jam . ':00' : $jam;
+}
+
+function getLastProcessedId() {
+    return file_exists(LAST_ID_FILE) ? (int)trim(file_get_contents(LAST_ID_FILE)) : 0;
+}
+
+function getSentLog() {
+    global $sentLogCache;
+    if ($sentLogCache === null) {
+        $sentLogCache = file_exists(SENT_LOG_FILE) ? (json_decode(file_get_contents(SENT_LOG_FILE), true) ?: []) : [];
     }
-    return 0;
+    return $sentLogCache;
 }
 
-function saveLastProcessedId($id)
-{
-    file_put_contents(LAST_ID_FILE, $id, LOCK_EX);
-}
-
-function getSentLog()
-{
-    if (file_exists(SENT_LOG_FILE)) {
-        $content = file_get_contents(SENT_LOG_FILE);
-        $data = json_decode($content, true);
-        if (is_array($data)) {
-            return $data;
+function saveSentLog() {
+    global $sentLogCache;
+    if ($sentLogCache !== null) {
+        // Cleanup old entries
+        $cutoff = date('Y-m-d', strtotime('-7 days'));
+        foreach ($sentLogCache as $k => $v) {
+            $parts = explode('_', $k);
+            if (isset($parts[1]) && $parts[1] < $cutoff) unset($sentLogCache[$k]);
         }
+        file_put_contents(SENT_LOG_FILE, json_encode($sentLogCache), LOCK_EX);
     }
-    return [];
 }
 
-function saveSentLog($data)
-{
-    file_put_contents(SENT_LOG_FILE, json_encode($data), LOCK_EX);
+function isNotified($userid, $checktime, $checktype) {
+    $key = "{$userid}_" . date('Y-m-d', strtotime($checktime)) . "_{$checktype}";
+    return isset(getSentLog()[$key]);
 }
 
-// Buat key unik: userid_tanggal_checktype (misal: 2_2025-12-19_0)
-function makeNotifKey($userid, $checktime, $checktype)
-{
-    $tanggal = date('Y-m-d', strtotime($checktime));
-    return "{$userid}_{$tanggal}_{$checktype}";
+function markNotified($userid, $checktime, $checktype) {
+    global $sentLogCache;
+    $key = "{$userid}_" . date('Y-m-d', strtotime($checktime)) . "_{$checktype}";
+    if ($sentLogCache === null) getSentLog();
+    $sentLogCache[$key] = time();
 }
 
-function isAlreadyNotified($userid, $checktime, $checktype)
-{
-    $key = makeNotifKey($userid, $checktime, $checktype);
-    $log = getSentLog();
-    return isset($log[$key]);
-}
-
-function markAsNotified($userid, $checktime, $checktype)
-{
-    $key = makeNotifKey($userid, $checktime, $checktype);
-    $log = getSentLog();
-    
-    // Hapus data lebih dari 7 hari untuk hemat storage
-    $cutoff = date('Y-m-d', strtotime('-7 days'));
-    foreach ($log as $k => $v) {
-        $parts = explode('_', $k);
-        if (isset($parts[1]) && $parts[1] < $cutoff) {
-            unset($log[$k]);
-        }
-    }
-    
-    $log[$key] = time();
-    saveSentLog($log);
-}
-
-function sendWhatsApp($phone, $message) {
+function sendWA($phone, $message) {
     global $WA_API_URL, $WA_TOKEN;
-    
     $ch = curl_init();
-    
-    $data = [
-        'phone' => $phone,
-        'message' => $message
-    ];
-    
     curl_setopt_array($ch, [
         CURLOPT_URL => $WA_API_URL,
         CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => json_encode($data),
+        CURLOPT_POSTFIELDS => json_encode(['phone' => $phone, 'message' => $message]),
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HTTPHEADER => [
-            'Content-Type: application/json',
-            'Authorization: Bearer ' . $WA_TOKEN
-        ],
-        CURLOPT_TIMEOUT => 30
+        CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Authorization: Bearer ' . $WA_TOKEN],
+        CURLOPT_TIMEOUT => 15,
+        CURLOPT_CONNECTTIMEOUT => 5
     ]);
-    
-    $response = curl_exec($ch);
+    $httpCode = 0;
+    curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $error = curl_error($ch);
     curl_close($ch);
-    
-    if ($error) {
-        logMessage("CURL Error: $error");
-        return false;
-    }
-    
-    logMessage("WA Response [$httpCode]: $response");
     return $httpCode >= 200 && $httpCode < 300;
 }
 
-function logMessage($msg) {
-    $timestamp = date('Y-m-d H:i:s');
-    $logFile = __DIR__ . '/cron_log.txt';
-    file_put_contents($logFile, "[$timestamp] $msg\n", FILE_APPEND);
+function logMsg($msg) {
+    file_put_contents(__DIR__ . '/cron_log.txt', '[' . date('Y-m-d H:i:s') . '] ' . $msg . "\n", FILE_APPEND);
 }
 
-// Main Process
+// Main
 $conn = getConnection();
 $lastId = getLastProcessedId();
 
-// Cek apakah hari ini libur
-if (isHoliday()) {
-    logMessage("Skip: Hari ini adalah hari libur (" . getNamaHari(date('N')) . ")");
-    exit;
-}
-
-// Query absensi baru
-$sql = "SELECT 
-            c.id,
-            c.userid,
-            c.checktime,
-            c.checktype,
-            u.name,
-            u.badgenumber,
-            u.Card
-        FROM checkinout c
-        LEFT JOIN userinfo u ON c.userid = u.userid
-        WHERE c.id > ?
-        ORDER BY c.id ASC";
-
-$stmt = $conn->prepare($sql);
+$stmt = $conn->prepare("SELECT c.id, c.userid, c.checktime, c.checktype, u.name, u.badgenumber, u.FPHONE 
+    FROM checkinout c LEFT JOIN userinfo u ON c.userid = u.userid 
+    WHERE c.id > ? ORDER BY c.id ASC LIMIT 50");
 $stmt->bind_param("i", $lastId);
 $stmt->execute();
 $result = $stmt->get_result();
 
 $maxId = $lastId;
+$processed = 0;
 
 while ($row = $result->fetch_assoc()) {
-    $currentId = (int) $row['id'];
-    $maxId = max($maxId, $currentId);
+    $maxId = max($maxId, (int)$row['id']);
+    $phone = trim($row['FPHONE'] ?? '');
     
-    $userid = $row['userid'];
-    $checktime = $row['checktime'];
-    $checktype = $row['checktype'];
-    $tipe = $checktype == '0' ? 'Masuk' : 'Pulang';
-    
-    // Cek apakah user ini sudah pernah dapat notif untuk tipe ini hari ini
-    if (isAlreadyNotified($userid, $checktime, $checktype)) {
-        logMessage("Skip ID {$currentId}: User {$row['name']} already notified for {$tipe} today");
+    if (empty($phone) || isNotified($row['userid'], $row['checktime'], $row['checktype'])) {
+        markNotified($row['userid'], $row['checktime'], $row['checktype']);
         continue;
     }
     
-    // Cek apakah nomor WA tersedia di kolom Card
-    $phone = trim($row['Card'] ?? '');
+    $jamAbsen = date('H:i:s', strtotime($row['checktime']));
+    $jamAutoCheckout = getJamAutoCheckout($row['checktime']);
+    $isAutoCheckout = ($row['checktype'] == '0' && $jamAbsen >= $jamAutoCheckout);
     
-    if (empty($phone)) {
-        logMessage("Skip ID {$currentId}: No phone number for user {$row['name']}");
-        markAsNotified($userid, $checktime, $checktype); // Tandai sudah diproses
-        continue;
-    }
-    
-    // Format pesan
-    $waktu = date('d/m/Y H:i:s', strtotime($checktime));
-    $jamAbsen = date('H:i:s', strtotime($checktime));
-    
-    // Cek apakah Check In (Masuk)
-    if ($checktype == '0') {
+    // Build message
+    if ($row['checktype'] == '0' && !$isAutoCheckout) {
         if ($jamAbsen > $BATAS_JAM_TIDAK_HADIR) {
-            // Masuk lebih dari jam batas = TIDAK HADIR
-            $message = "❌ *NOTIFIKASI TIDAK HADIR*\n\n";
-            $message .= "Nama: {$row['name']}\n";
-            $message .= "NIS: {$row['badgenumber']}\n";
-            $message .= "Jam Masuk: {$jamAbsen}\n";
-            $message .= "Batas Jam: " . $BATAS_JAM_TIDAK_HADIR . "\n";
-            $message .= "Tanggal: " . date('d/m/Y', strtotime($checktime)) . "\n\n";
-            $message .= "_Anda tercatat TIDAK HADIR karena masuk lebih dari jam " . substr($BATAS_JAM_TIDAK_HADIR, 0, 5) . "_";
-            
-            logMessage("User {$row['name']} TIDAK HADIR - masuk jam {$jamAbsen}");
+            $message = "❌ *NOTIFIKASI TIDAK HADIR*\n\nNama: {$row['name']}\nNIS: {$row['badgenumber']}\nJam Masuk: {$jamAbsen}\nTanggal: " . date('d/m/Y', strtotime($row['checktime'])) . "\n\n_Masuk lebih dari jam " . substr($BATAS_JAM_TIDAK_HADIR, 0, 5) . "_";
         } elseif ($jamAbsen > $BATAS_JAM_MASUK) {
-            // Masuk lebih dari jam masuk tapi sebelum batas = TERLAMBAT
-            $message = "⚠️ *NOTIFIKASI KETERLAMBATAN*\n\n";
-            $message .= "Nama: {$row['name']}\n";
-            $message .= "NIS: {$row['badgenumber']}\n";
-            $message .= "Jam Masuk: {$jamAbsen}\n";
-            $message .= "Batas Jam: " . $BATAS_JAM_MASUK . "\n";
-            $message .= "Tanggal: " . date('d/m/Y', strtotime($checktime)) . "\n\n";
-            $message .= "_Anda tercatat TERLAMBAT hari ini_";
-            
-            logMessage("User {$row['name']} TERLAMBAT - masuk jam {$jamAbsen}");
+            $message = "⚠️ *NOTIFIKASI TERLAMBAT*\n\nNama: {$row['name']}\nNIS: {$row['badgenumber']}\nJam Masuk: {$jamAbsen}\nTanggal: " . date('d/m/Y', strtotime($row['checktime'])) . "\n\n_Anda tercatat TERLAMBAT_";
         } else {
-            // Masuk tepat waktu
-            $message = "✅ *NOTIFIKASI ABSENSI MASUK*\n\n";
-            $message .= "Nama: {$row['name']}\n";
-            $message .= "NIS: {$row['badgenumber']}\n";
-            $message .= "Tipe: {$tipe}\n";
-            $message .= "Waktu: {$waktu}\n\n";
-            $message .= "_Terima kasih, Anda hadir tepat waktu_";
+            $message = "✅ *NOTIFIKASI MASUK*\n\nNama: {$row['name']}\nNIS: {$row['badgenumber']}\nWaktu: " . date('d/m/Y H:i:s', strtotime($row['checktime'])) . "\n\n_Hadir tepat waktu_";
         }
     } else {
-        // Pulang
-        $message = "🏠 *NOTIFIKASI ABSENSI PULANG*\n\n";
-        $message .= "Nama: {$row['name']}\n";
-        $message .= "NIS: {$row['badgenumber']}\n";
-        $message .= "Tipe: {$tipe}\n";
-        $message .= "Waktu: {$waktu}\n\n";
-        $message .= "_Hati-hati di jalan, sampai jumpa besok_";
+        $message = "🏠 *NOTIFIKASI PULANG*\n\nNama: {$row['name']}\nNIS: {$row['badgenumber']}\nWaktu: " . date('d/m/Y H:i:s', strtotime($row['checktime'])) . "\n\n_Hati-hati di jalan_";
     }
     
-    // Kirim WhatsApp
-    $sent = sendWhatsApp($phone, $message);
-    
-    if ($sent) {
-        logMessage("SUCCESS: Sent notification to {$phone} for {$row['name']} ({$tipe})");
-    } else {
-        logMessage("FAILED: Added to queue - {$phone} for {$row['name']}");
-        $tanggal = date('Y-m-d', strtotime($checktime));
-        addToWaQueue($phone, $message, 'absensi_' . $tipe, $userid, $tanggal);
+    if (!sendWA($phone, $message)) {
+        addToWaQueue($phone, $message, 'absensi', $row['userid'], date('Y-m-d', strtotime($row['checktime'])));
     }
     
-    // Tandai sudah diproses (baik berhasil maupun gagal) supaya tidak kirim ulang
-    markAsNotified($userid, $checktime, $checktype);
+    markNotified($row['userid'], $row['checktime'], $row['checktype']);
+    $processed++;
 }
 
-// Simpan ID terakhir
-if ($maxId > $lastId) {
-    saveLastProcessedId($maxId);
-    logMessage("Updated last ID from $lastId to $maxId");
-}
+// Save all at once
+if ($maxId > $lastId) file_put_contents(LAST_ID_FILE, $maxId, LOCK_EX);
+saveSentLog();
 
 $stmt->close();
-$conn->close();
-?>

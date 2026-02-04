@@ -1,7 +1,6 @@
 <?php
 /**
- * Import Karyawan dari Excel/CSV
- * Menggunakan library SimpleXLSX untuk membaca file Excel
+ * Import Karyawan dari Excel/CSV - Optimized Version
  */
 
 require_once 'config.php';
@@ -11,57 +10,41 @@ header('Content-Type: application/json');
 
 // Download SimpleXLSX jika belum ada
 if (!file_exists('SimpleXLSX.php')) {
-    $xlsxLib = file_get_contents('https://raw.githubusercontent.com/shuchkin/simplexlsx/master/src/SimpleXLSX.php');
+    $xlsxLib = @file_get_contents('https://raw.githubusercontent.com/shuchkin/simplexlsx/master/src/SimpleXLSX.php');
     if ($xlsxLib) file_put_contents('SimpleXLSX.php', $xlsxLib);
 }
-
-if (file_exists('SimpleXLSX.php')) {
-    require_once 'SimpleXLSX.php';
-}
+if (file_exists('SimpleXLSX.php')) require_once 'SimpleXLSX.php';
 
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
 switch ($action) {
     case 'template':
-        // Download template Excel (CSV format untuk kompatibilitas)
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="template_karyawan.csv"');
-        
         $output = fopen('php://output', 'w');
-        // BOM untuk Excel UTF-8
         fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
-        
-        // Header sesuai kolom database (Title = badgenumber)
-        fputcsv($output, ['Title', 'name', 'Card', 'defaultdeptid', 'SN'], ';');
-        
-        // Contoh data
-        fputcsv($output, ['001', 'John Doe', '628123456789', '1', 'DEVICE001'], ';');
-        fputcsv($output, ['002', 'Jane Smith', '628987654321', '1', 'DEVICE001'], ';');
-        fputcsv($output, ['003', 'Ahmad Rizki', '628555666777', '2', 'DEVICE001'], ';');
-        
+        fputcsv($output, ['Title', 'name', 'Card', 'FPHONE', 'defaultdeptid', 'SN'], ';');
+        fputcsv($output, ['001', 'John Doe', '628123456789', '021123456', '1', 'DEVICE001'], ';');
+        fputcsv($output, ['002', 'Jane Smith', '628987654321', '021654321', '1', 'DEVICE001'], ';');
         fclose($output);
         exit;
         
     case 'import':
         if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
-            echo json_encode(['success' => false, 'message' => 'File tidak valid atau tidak diupload']);
+            echo json_encode(['success' => false, 'message' => 'File tidak valid']);
             exit;
         }
         
         $file = $_FILES['file'];
         $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-        
         $data = [];
         $errors = [];
         
-        // Parse file berdasarkan ekstensi
+        // Parse file
         if ($ext === 'csv') {
             $handle = fopen($file['tmp_name'], 'r');
-            // Skip BOM jika ada
             $bom = fread($handle, 3);
-            if ($bom !== chr(0xEF).chr(0xBB).chr(0xBF)) {
-                rewind($handle);
-            }
+            if ($bom !== chr(0xEF).chr(0xBB).chr(0xBF)) rewind($handle);
             
             $header = null;
             $lineNum = 0;
@@ -78,6 +61,7 @@ switch ($action) {
                         'title' => trim($rowData['title'] ?? ''),
                         'name' => trim($rowData['name'] ?? ''),
                         'card' => trim($rowData['card'] ?? ''),
+                        'fphone' => trim($rowData['fphone'] ?? ''),
                         'defaultdeptid' => trim($rowData['defaultdeptid'] ?? '1'),
                         'sn' => trim($rowData['sn'] ?? '')
                     ];
@@ -86,10 +70,9 @@ switch ($action) {
             fclose($handle);
         } elseif (in_array($ext, ['xlsx', 'xls'])) {
             if (!class_exists('Shuchkin\SimpleXLSX')) {
-                echo json_encode(['success' => false, 'message' => 'Library SimpleXLSX tidak tersedia. Gunakan format CSV.']);
+                echo json_encode(['success' => false, 'message' => 'Library SimpleXLSX tidak tersedia']);
                 exit;
             }
-            
             $xlsx = \Shuchkin\SimpleXLSX::parse($file['tmp_name']);
             if ($xlsx) {
                 $rows = $xlsx->rows();
@@ -108,113 +91,111 @@ switch ($action) {
                             'title' => trim($rowData['title'] ?? ''),
                             'name' => trim($rowData['name'] ?? ''),
                             'card' => trim($rowData['card'] ?? ''),
+                            'fphone' => trim($rowData['fphone'] ?? ''),
                             'defaultdeptid' => trim($rowData['defaultdeptid'] ?? '1'),
                             'sn' => trim($rowData['sn'] ?? '')
                         ];
                     }
                 }
             } else {
-                echo json_encode(['success' => false, 'message' => 'Gagal membaca file Excel: ' . \Shuchkin\SimpleXLSX::parseError()]);
+                echo json_encode(['success' => false, 'message' => 'Gagal membaca file Excel']);
                 exit;
             }
         } else {
-            echo json_encode(['success' => false, 'message' => 'Format file tidak didukung. Gunakan CSV atau XLSX.']);
+            echo json_encode(['success' => false, 'message' => 'Format tidak didukung']);
             exit;
         }
         
         if (empty($data)) {
-            echo json_encode(['success' => false, 'message' => 'File kosong atau format tidak sesuai']);
+            echo json_encode(['success' => false, 'message' => 'File kosong']);
             exit;
         }
         
-        // Validasi dan import ke database
         $conn = getConnection();
         $imported = 0;
         $updated = 0;
         $skipped = 0;
+        $mode = $_POST['mode'] ?? 'skip';
         
-        $mode = $_POST['mode'] ?? 'skip'; // skip, update, replace
-        
-        // Ambil badgenumber terbesar untuk auto-increment
+        // Ambil max badge number sekali saja
         $maxBadgeResult = $conn->query("SELECT MAX(CAST(badgenumber AS UNSIGNED)) as max_badge FROM userinfo WHERE badgenumber REGEXP '^[0-9]+$'");
-        $maxBadgeRow = $maxBadgeResult->fetch_assoc();
-        $nextBadgeNumber = ($maxBadgeRow['max_badge'] ?? 0) + 1;
+        $nextBadgeNumber = (($maxBadgeResult->fetch_assoc()['max_badge'] ?? 0) + 1);
         
-        foreach ($data as $row) {
-            // Validasi - hanya nama yang wajib, title opsional
-            if (empty($row['name'])) {
-                $errors[] = "Baris {$row['line']}: Nama wajib diisi";
-                $skipped++;
-                continue;
-            }
-            
-            // Cek apakah sudah ada berdasarkan nama dan title
-            $stmt = $conn->prepare("SELECT userid FROM userinfo WHERE name = ? AND (title = ? OR (title IS NULL AND ? = ''))");
-            $stmt->bind_param("sss", $row['name'], $row['title'], $row['title']);
-            $stmt->execute();
-            $result = $stmt->get_result();
-            $existing = $result->fetch_assoc();
-            $stmt->close();
-            
-            if ($existing) {
-                if ($mode === 'skip') {
+        // Ambil semua title yang sudah ada untuk lookup cepat
+        $existingTitles = [];
+        $result = $conn->query("SELECT userid, title FROM userinfo WHERE title IS NOT NULL AND title != ''");
+        while ($row = $result->fetch_assoc()) {
+            $existingTitles[$row['title']] = $row['userid'];
+        }
+        $result->free();
+        
+        // Prepare statements sekali saja
+        $updateStmt = $conn->prepare("UPDATE userinfo SET name=?, Card=?, FPHONE=?, defaultdeptid=? WHERE title=?");
+        $insertStmt = $conn->prepare("INSERT INTO userinfo (badgenumber, name, title, Card, FPHONE, defaultdeptid, SN) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        
+        // Mulai transaction untuk batch processing
+        $conn->begin_transaction();
+        
+        try {
+            foreach ($data as $row) {
+                if (empty($row['name'])) {
+                    $errors[] = "Baris {$row['line']}: Nama wajib diisi";
                     $skipped++;
                     continue;
-                } elseif ($mode === 'update') {
-                    // Update data yang ada
-                    $stmt = $conn->prepare("UPDATE userinfo SET title = ?, Card = ?, defaultdeptid = ? WHERE userid = ?");
-                    $deptId = !empty($row['defaultdeptid']) ? (int)$row['defaultdeptid'] : 1;
-                    $stmt->bind_param("ssii", $row['title'], $row['card'], $deptId, $existing['userid']);
-                    $stmt->execute();
-                    $stmt->close();
-                    $updated++;
                 }
-            } else {
-                // Insert baru - badgenumber auto-increment dari nilai terbesar (9 digit)
-                $newBadgeNumber = str_pad($nextBadgeNumber, 9, '0', STR_PAD_LEFT); // Format: 000000001, 000000002, dst
-                $stmt = $conn->prepare("INSERT INTO userinfo (badgenumber, name, title, Card, defaultdeptid, SN) VALUES (?, ?, ?, ?, ?, ?)");
-                $deptId = !empty($row['defaultdeptid']) ? (int)$row['defaultdeptid'] : 1;
-                $sn = !empty($row['sn']) ? $row['sn'] : '';
-                $title = !empty($row['title']) ? $row['title'] : null;
-                $stmt->bind_param("ssssis", $newBadgeNumber, $row['name'], $title, $row['card'], $deptId, $sn);
-                if ($stmt->execute()) {
-                    $imported++;
-                    $nextBadgeNumber++; // Increment untuk data berikutnya
-                } else {
-                    $errors[] = "Baris {$row['line']}: Gagal menyimpan - " . $stmt->error;
+                if (empty($row['title'])) {
+                    $errors[] = "Baris {$row['line']}: Title (NIS) wajib diisi";
                     $skipped++;
+                    continue;
                 }
-                $stmt->close();
+                
+                $deptId = !empty($row['defaultdeptid']) ? (int)$row['defaultdeptid'] : 1;
+                
+                if (isset($existingTitles[$row['title']])) {
+                    if ($mode === 'skip') {
+                        $skipped++;
+                        continue;
+                    }
+                    // Update
+                    $updateStmt->bind_param("sssis", $row['name'], $row['card'], $row['fphone'], $deptId, $row['title']);
+                    $updateStmt->execute();
+                    $updated++;
+                } else {
+                    // Insert
+                    $newBadge = str_pad($nextBadgeNumber, 9, '0', STR_PAD_LEFT);
+                    $insertStmt->bind_param("sssssis", $newBadge, $row['name'], $row['title'], $row['card'], $row['fphone'], $deptId, $row['sn']);
+                    if ($insertStmt->execute()) {
+                        $existingTitles[$row['title']] = $conn->insert_id;
+                        $imported++;
+                        $nextBadgeNumber++;
+                    } else {
+                        $errors[] = "Baris {$row['line']}: " . $insertStmt->error;
+                        $skipped++;
+                    }
+                }
             }
+            $conn->commit();
+        } catch (Exception $e) {
+            $conn->rollback();
+            echo json_encode(['success' => false, 'message' => 'Error: ' . $e->getMessage()]);
+            exit;
         }
         
-        $conn->close();
+        $updateStmt->close();
+        $insertStmt->close();
         
         echo json_encode([
             'success' => true,
             'message' => "Import selesai: $imported baru, $updated diupdate, $skipped dilewati",
-            'imported' => $imported,
-            'updated' => $updated,
-            'skipped' => $skipped,
-            'errors' => $errors
+            'imported' => $imported, 'updated' => $updated, 'skipped' => $skipped,
+            'errors' => array_slice($errors, 0, 10)
         ]);
         exit;
         
     case 'columns':
-        // Get kolom dari tabel userinfo
         $conn = getConnection();
         $result = $conn->query("DESCRIBE userinfo");
-        $columns = [];
-        while ($row = $result->fetch_assoc()) {
-            $columns[] = [
-                'name' => $row['Field'],
-                'type' => $row['Type'],
-                'null' => $row['Null'],
-                'key' => $row['Key'],
-                'default' => $row['Default']
-            ];
-        }
-        $conn->close();
+        $columns = $result->fetch_all(MYSQLI_ASSOC);
         echo json_encode(['success' => true, 'columns' => $columns]);
         exit;
         

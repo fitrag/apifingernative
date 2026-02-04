@@ -1,59 +1,58 @@
 # ============================================
-#    ABSENSI MONITOR - WhatsApp Notifier
-#    Cron Job Runner
+#    ABSENSI MONITOR - Optimized Cron Runner
 # ============================================
 
+$ErrorActionPreference = "SilentlyContinue"
 $Host.UI.RawUI.WindowTitle = "Absensi Monitor"
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+Set-Location $scriptDir
 
-Write-Host "============================================" -ForegroundColor Cyan
-Write-Host "  ABSENSI MONITOR - WhatsApp Notifier" -ForegroundColor Cyan
-Write-Host "============================================" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "Monitoring absensi setiap 5 detik..." -ForegroundColor Yellow
-Write-Host "Cek ketidakhadiran setiap 60 detik..." -ForegroundColor Yellow
-Write-Host "Cek bolos setiap 60 detik..." -ForegroundColor Yellow
-Write-Host "Retry queue setiap 60 detik..." -ForegroundColor Yellow
-Write-Host ""
-Write-Host "Tekan Ctrl+C untuk berhenti" -ForegroundColor Red
-Write-Host "============================================" -ForegroundColor Cyan
-Write-Host ""
+# Quick PHP check
+if (-not (Get-Command php -ErrorAction SilentlyContinue)) { exit 1 }
 
-$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
-$phpScript = Join-Path $scriptPath "cron_absensi.php"
-$phpAbsent = Join-Path $scriptPath "cron_tidak_hadir.php"
-$phpBolos = Join-Path $scriptPath "cron_bolos.php"
-$phpRetry = Join-Path $scriptPath "cron_retry_queue.php"
-
-# Check PHP
-$phpPath = Get-Command php -ErrorAction SilentlyContinue
-if (-not $phpPath) {
-    Write-Host "[ERROR] PHP tidak ditemukan!" -ForegroundColor Red
-    Read-Host "Tekan Enter untuk keluar"
-    exit 1
+# Helper function to get sync interval via PHP
+function Get-SyncInterval {
+    try {
+        $result = php -r "require 'settings.php'; echo getSetting('sync_interval', 60);" 2>&1
+        $interval = [int]$result
+        if ($interval -ge 1 -and $interval -le 1440) { return $interval }
+    } catch {}
+    return 60
 }
 
-$counter = 0
-$startTime = Get-Date
+$lastSync = [DateTime]::MinValue
+$lastPeriodic = [DateTime]::MinValue
+$syncInterval = Get-SyncInterval
+$firstRun = $true
 
-Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Monitor dimulai..." -ForegroundColor Green
+Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Monitor started (sync interval: $syncInterval min)" -ForegroundColor Green
 
 while ($true) {
-    try {
-        # Cek absensi baru setiap 5 detik
-        $result = php $phpScript 2>&1
+    $now = Get-Date
+    
+    # Absensi check - setiap 3 detik
+    php cron_absensi.php 2>&1 | Out-Null
+    
+    # Periodic checks - setiap 30 detik
+    if (($now - $lastPeriodic).TotalSeconds -ge 30) {
+        php cron_tidak_hadir.php 2>&1 | Out-Null
+        php cron_bolos.php 2>&1 | Out-Null
+        php cron_izin_sakit.php 2>&1 | Out-Null
+        php cron_retry_queue.php 2>&1 | Out-Null
+        $lastPeriodic = $now
         
-        # Cek ketidakhadiran, bolos, dan retry queue setiap 60 detik
-        $counter += 5
-        if ($counter -ge 60) {
-            Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Running periodic checks..." -ForegroundColor Gray
-            php $phpAbsent 2>&1 | Out-Null
-            php $phpBolos 2>&1 | Out-Null
-            php $phpRetry 2>&1 | Out-Null
-            $counter = 0
-        }
-    } catch {
-        Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Error: $_" -ForegroundColor Red
+        # Reload sync interval via PHP
+        $syncInterval = Get-SyncInterval
     }
     
-    Start-Sleep -Seconds 5
+    # Sync attendance - jalankan pertama kali, lalu sesuai interval
+    if ($firstRun -or ($now - $lastSync).TotalMinutes -ge $syncInterval) {
+        Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Running sync attendance..." -ForegroundColor Cyan
+        php cron_sync_attendance.php 2>&1 | Out-Null
+        $lastSync = $now
+        $firstRun = $false
+        Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Sync done. Next in $syncInterval minutes" -ForegroundColor Gray
+    }
+    
+    Start-Sleep -Seconds 3
 }
